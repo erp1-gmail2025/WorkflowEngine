@@ -1,0 +1,16 @@
+using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
+using System.Collections.Generic;
+
+namespace WorkflowAPI.Models
+{
+    public class StateType
+    {
+        [Key]
+        [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
+        public int StateTypeID { get; set; }
+        public string Name { get; set; }
+        public string Key { get; set; }
+        public List<State> States { get; set; }
+    }
+}
