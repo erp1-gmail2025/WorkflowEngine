@@ -1,7 +1,7 @@
 // app/page.tsx
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { use, useEffect, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -27,15 +27,15 @@ import { useModal } from "@/hooks/useModal";
 import { Modal } from "@/components/ui/modal";
 import { State } from "@/components/test/ViewStatesComponent";
 import axios from "axios";
+import { Request } from "@/components/process/KanbanBoard";
 
 export default function App() {
   const { isOpen, openModal, closeModal, toggleModal } = useModal();
   const [states, setStates] = useState<State[]>([]);
-  const [items, setItems] = useState<{String,}>({
-    root: ["1", "2", "3"],
-    container1: ["4", "5", "6"],
-    container2: ["7", "8", "9"],
-    container3: []
+  const [request, setRequest] = useState<Request[]>([]);
+  const [items, setItems] = useState<{
+    [key: string]: Request[];
+  }>({
   });
   const [activeId, setActiveId] = useState<string | null>(null);
   const [dialogInput, setDialogInput] = useState("");
@@ -55,6 +55,24 @@ export default function App() {
     };
     fetchStates();
   }, []);
+
+  useEffect(() => {
+    const fetchRequests = async () => {
+      const response = await axios.get(`https://localhost:7262/api/Request/1`);
+      const data = response.data.$values;
+      setRequest(data ?? []);
+    }
+    fetchRequests();
+  }, []);
+
+  useEffect(() => {
+    if (states.length === 0 || request.length === 0) return;
+    const initialItems: { [key: string]: Request[] } = {};
+    states.forEach(state => {
+      initialItems[`container-${state.stateID}`] = request.filter(req => req.currentStateID === state.stateID);
+    });
+    setItems(initialItems);
+  }, [states, request]);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -82,12 +100,15 @@ export default function App() {
     if (id in items) {
       return id as keyof typeof items;
     }
-    return (Object.keys(items) as Array<keyof typeof items>).find((key) => items[key].includes(id));
+    return (Object.keys(items) as Array<keyof typeof items>).find((key) =>
+      items[key].some((q) => String(q.requestID) == id)
+    );
   }
 
   function handleDragStart(event: DragStartEvent) {
     const { active } = event;
-    const fromContainer = findContainer(active.id as string) || null;
+    const foundContainer = findContainer(active.id as string);
+    const fromContainer = typeof foundContainer === "string" ? foundContainer : null;
     setActiveId(active.id as string);
     setActiveMonitor((prev) => ({ ...prev, itemId: active.id as string, fromContainer, toContainer: null, overId: null }));
     setLastItems(items); // Lưu lại trạng thái trước khi drag
@@ -107,20 +128,21 @@ export default function App() {
     setItems((prev) => {
       const activeItems = prev[activeContainer];
       const overItems = prev[overContainer];
-      const activeIndex = activeItems.indexOf(id);
-      const overIndex = overItems.indexOf(overId);
+      const activeIndex = activeItems.findIndex(q => String(q.requestID) == id);
+      const overIndex = overItems.findIndex(q => String(q.requestID) == overId);
       const newIndex = overIndex >= 0 ? overIndex : overItems.length;
+      const movingItem = activeItems[activeIndex];
+      if (!movingItem) return prev;
       return {
         ...prev,
-        [activeContainer]: prev[activeContainer].filter((item) => item !== id),
+        [activeContainer]: prev[activeContainer].filter((item) => String(item.requestID) != id),
         [overContainer]: [
           ...prev[overContainer].slice(0, newIndex),
-          prev[activeContainer][activeIndex],
+          movingItem,
           ...prev[overContainer].slice(newIndex)
         ]
       };
     });
-    console.log("Drag over item:", overId);
   }
 
   function handleDragEnd(event: DragEndEvent) {
@@ -128,7 +150,7 @@ export default function App() {
     const itemId = active.id as string;
     const overId = over ? (over.id as string) : null;
     const fromContainer = activeMonitor.fromContainer;
-    const toContainer = overId ? findContainer(overId) || null : null;
+    const toContainer = overId ? String(findContainer(overId)) || null : null;
     setActiveMonitor({
       itemId,
       fromContainer,
@@ -137,18 +159,21 @@ export default function App() {
     });
     if (!over) {
       setActiveId(null);
+      if (lastItems) setItems(lastItems); // rollback nếu không thả vào đâu
       return;
     }
     if (!fromContainer || !toContainer) {
       setActiveId(null);
+      if (lastItems) setItems(lastItems);
       return;
     }
     if (fromContainer !== toContainer) {
       openModal();
       return;
     }
-    const activeIndex = items[fromContainer].indexOf(itemId);
-    const overIndex = items[toContainer].indexOf(overId!);
+    // Nếu cùng container thì move bằng arrayMove
+    const activeIndex = items[fromContainer].findIndex(item => String(item.requestID) == itemId);
+    const overIndex = items[toContainer].findIndex(item => String(item.requestID) == overId!);
     if (activeIndex !== overIndex) {
       setItems((items) => ({
         ...items,
@@ -156,25 +181,19 @@ export default function App() {
       }));
     }
     setActiveId(null);
-    console.log("Drag ended for item:", itemId, "\nover item:", overId, "\nin container:", toContainer);
-    console.log("Active monitor state:", activeMonitor);
-    console.log("Check is container ID:", isContainerId(overId!));
   }
 
   function handleDragCancel(event: DragCancelEvent) {
     setActiveId(null);
+    if (lastItems) setItems(lastItems); // rollback nếu huỷ drag
   }
 
   const handleDialogConfirm = () => {
-    const { itemId, fromContainer, toContainer } = activeMonitor;
-    if (itemId && fromContainer && toContainer) {
-      console.log(`Confirmed move from ${fromContainer} to ${toContainer} for item ${itemId}`);
-      // Thực hiện logic chuyển mục ở đây
-      // Ví dụ: cập nhật cơ sở dữ liệu hoặc trạng thái ứng dụng
-    }
+    // Đã move realtime rồi, chỉ cần reset monitor
     closeModal();
     setActiveMonitor({ itemId: null, fromContainer: null, toContainer: null, overId: null });
     setActiveId(null);
+    setLastItems(null);
   }
   return (
     <div className={"flex flex-row"}>
@@ -186,31 +205,44 @@ export default function App() {
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
       >
-        {/* Sử dụng SortableContext cho từng container */}
         {
-          states.map((state) => (
-            <SortableContext
-              key={`container-${state.stateID}`}
-              items={items[`container-${state.stateID}`]}
-              strategy={verticalListSortingStrategy}
-            >
-              <WorkflowContainer id={`container-${state.stateID}`} items={items[`container-${state.stateID}`]} />
-            </SortableContext>
-          ))
+          states.map((state) => {
+            const containerId = `container-${state.stateID}`;
+            return (
+              <SortableContext
+                key={containerId}
+                items={(items[containerId] ?? []).map(item => String(item.requestID))}
+                strategy={verticalListSortingStrategy}
+              >
+                <WorkflowContainer
+                  id={containerId}
+                  items={items[`container-${state.stateID}`] ?? []}
+                  name={state.name}
+                  description={state.description}
+                />
+              </SortableContext>
+            )
+          })
         }
-        {/* <SortableContext items={items.root} strategy={verticalListSortingStrategy}>
-          <WorkflowContainer id="root" items={items.root} />
-        </SortableContext>
-        <SortableContext items={items.container1} strategy={verticalListSortingStrategy}>
-          <WorkflowContainer id="container1" items={items.container1} />
-        </SortableContext>
-        <SortableContext items={items.container2} strategy={verticalListSortingStrategy}>
-          <WorkflowContainer id="container2" items={items.container2} />
-        </SortableContext>
-        <SortableContext items={items.container3} strategy={verticalListSortingStrategy}>
-          <WorkflowContainer id="container3" items={items.container3} />
-        </SortableContext> */}
-        <DragOverlay>{activeId ? <WorkflowItem id={activeId} /> : null}</DragOverlay>
+        {/* <DragOverlay>
+          {activeId ? (
+            <WorkflowItem id={activeId} />
+            // (() => {
+            //   console.log("Active ID:", activeId);
+            //   const item = request.find(q => String(q.requestID) == activeId);
+            //   return item ? <WorkflowItem id={activeId} /> : null;
+            // })()
+          ) : null}
+        </DragOverlay> */}
+        <DragOverlay>
+          {activeId ? (
+            (() => {
+              const allItems = Object.values(items).flat();
+              const item = allItems.find(q => String(q.requestID) == activeId);
+              return item ? <WorkflowItem item={item} /> : null;
+            })()
+          ) : null}
+        </DragOverlay>
       </DndContext>
       {isOpen && (
         <Modal

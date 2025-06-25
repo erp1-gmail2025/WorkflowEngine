@@ -1,13 +1,14 @@
 import React from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { Request } from "../process/KanbanBoard";
 
 interface ItemProps {
-    id: string;
+    item: Request;
 }
 
 export function WorkflowItem(props: ItemProps) {
-  const { id } = props;
+  const { item } = props;
 
   const style = {
     width: "100%",
@@ -20,11 +21,11 @@ export function WorkflowItem(props: ItemProps) {
     background: "white"
   };
 
-  return <div style={style}>{id}</div>;
+  return <div style={style}>{item.title}</div>;
 }
 
 interface SortableItemProps {
-    id: string;
+    item: Request;
 }
 
 export default function WorkflowSortableItem(props: SortableItemProps) {
@@ -34,7 +35,7 @@ export default function WorkflowSortableItem(props: SortableItemProps) {
     setNodeRef,
     transform,
     transition
-  } = useSortable({ id: props.id });
+  } = useSortable({ id: props.item.requestID });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -43,7 +44,7 @@ export default function WorkflowSortableItem(props: SortableItemProps) {
 
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <WorkflowItem id={props.id} />
+      <WorkflowItem item={props.item} />
     </div>
   );
 }
